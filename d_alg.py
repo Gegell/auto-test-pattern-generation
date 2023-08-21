@@ -153,18 +153,12 @@ def D_Algorithm_Recurse(
 
 def D_Algorithm(net: Network, fault_loc: Line, is_stuck_at_1: bool):
     """Initializes the D-Algorithm."""
-    outputs = net.outputs()
-
     net.reset()
     source_gate = fault_loc.parent
     incoming_line = Line(name=fault_loc.name + "_in", parent=source_gate)
     if source_gate is not None:
         source_gate.output = incoming_line
     fault_loc.parent = None
-
-    print()
-    for output in outputs:
-        print(output.equation_str())
 
     # Initialize
     d_front: set[Gate] = set()
