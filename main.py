@@ -1,5 +1,7 @@
 from pathlib import Path
 from logic_blocks import Line, AND, OR, XOR, XNOR, Network
+from d_alg import D_Algorithm
+from itertools import chain
 from multi_logic import FiveValue
 from writer import TikZWriter
 
@@ -30,6 +32,25 @@ def main():
     print(or2.equation_str())
     print("Gates in net:", len(net.gates))
     print("Lines in net:", len(net.lines))
+
+    format_str = "{{:>{}}} - {{}}: ".format(max(len(line.name) for line in net.lines))
+    sep_str = "\n" + " " * len(format_str.format("", " " * 5))
+
+    for line in net.lines:
+        for stuck_at in (False, True):
+            sa_name = "s.a.1" if stuck_at else "s.a.0"
+            if D_Algorithm(net, line, stuck_at):
+                print(
+                    format_str.format(line.name, sa_name)
+                    + sep_str.join(
+                        f"{'IO'[line.is_output()]}: {line.name}, {line.value}"
+                        for line in chain(net.outputs(), net.inputs())
+                        if line.value != FiveValue.UNKNOWN
+                    )
+                )
+                writer.write()
+            else:
+                print(format_str.format(line.name, sa_name) + "No D-algorithm assignment found.")
 
 
 if __name__ == "__main__":
