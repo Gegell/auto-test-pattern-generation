@@ -1,5 +1,7 @@
+from pathlib import Path
 from logic_blocks import Line, AND, OR, XOR, XNOR, Network
 from multi_logic import FiveValue
+from writer import TikZWriter
 
 
 def main():
@@ -19,6 +21,11 @@ def main():
         xnor = XNOR([xnor1.output, xnor2.output], m)
         or1 = OR([and1.output, xor.output], n)
         or2 = OR([xnor.output, or1.output], o)
+
+    out_path = Path(__file__).parent / "out"
+    out_path.mkdir(exist_ok=True, parents=True)
+    with TikZWriter(net, out_path / "output.tex") as writer:
+        writer.write()
 
     print(or2.equation_str())
     print("Gates in net:", len(net.gates))
