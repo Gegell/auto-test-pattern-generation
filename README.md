@@ -3,7 +3,7 @@ This repository implements a couple of ATPG algorithms for digital circuits,
 namely the **D-Algorithm** (and the *PODEM*). The implementation is based on
 a lecture I attended during my course of study (Robust System Design).
 
-![Example circuit with assignments](images/example.png)
+<img src="images/example.png" style="border-radius:0.5em"></img>
 
 ## What is ATPG?
 ATPG stands for **Automatic Test Pattern Generation** and is a method to
