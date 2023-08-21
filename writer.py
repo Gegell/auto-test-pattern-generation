@@ -44,7 +44,7 @@ class TikZWriter:
         net: Network,
         filename: str | PathLike,
         single_track_width: float = 0.2,
-        pin_width: float = 1.2,
+        pin_width: float = 0.6,
         component_width: float = 1.4,
         scale: float = 1.0,
         verbose: bool = False,
@@ -108,7 +108,7 @@ class TikZWriter:
             lines_in_layer.setdefault(max_x, []).append(line)
         accumulated_depths = [0.0]
         for layer in range(1, depth):
-            layer_width = (self.tracks_per_layer[layer] + 1) * self.single_track_width + self.pin_width
+            layer_width = (self.tracks_per_layer[layer] + 1) * self.single_track_width + self.pin_width * 2
             accumulated_depths.append(accumulated_depths[-1] + layer_width)
         for gate, (x, y) in self.gate_coordinates.items():
             self.tikz_gate_positions[gate] = (-(x + accumulated_depths[x]), y * self.component_width)
@@ -125,6 +125,7 @@ class TikZWriter:
             formatted = _BOILERPLATE_FORMAT.format(scale=self.scale, content="{content}")
             pre, post = formatted.split("{content}")
             f.write(pre)
+            f.write("\\ctikzset{logic ports draw leads=false}\n")
             for gate in self.net.gates:
                 self._write_gate(f, gate)
             for line in self.net.lines:
@@ -161,31 +162,65 @@ class TikZWriter:
 
         elif line.parent is None and line.children:
             earliest_gate = max((child for child in line.children), key=lambda gate: self.gate_coordinates[gate][0])
-            input_index = earliest_gate.inputs.index(line)
+            in_pin = earliest_gate.inputs.index(line)
             layer = self.gate_coordinates[earliest_gate][0]
             layer_width = (self.tracks_per_layer[layer] + 1) * self.single_track_width
             track_offset = (self.line_tracks[line] + 1) * self.single_track_width
-            position = f"({self._node_name(earliest_gate)}.in {input_index + 1}) ++(-{layer_width:.1f}, 0)"
+            position = f"({self._node_name(earliest_gate)}.in {in_pin + 1}) ++(-{layer_width:.1f}, 0)"
             file.write(f"\\draw {position}{modifier_str} node[left] ({line_id}) {{\\verb|{line.name}|}};\n")
             file.write(f"\\draw{modifier_str}")
+            fmt = (
+                " ({line_id}.east) -- ++({track_offset:.2f}, 0)"
+                " |- ({in_id}.in {in_pin}) {node} -- ({in_id}.bin {in_pin})"
+            )
             for child in line.children:
-                input_index = child.inputs.index(line)
-                input_position = f"({self._node_name(child)}.in {input_index + 1})"
-                file.write(f" ({line_id}.east) -- ++({track_offset:.1f}, 0) |- {input_position}")
+                in_id = self._node_name(child)
+                in_pin = child.inputs.index(line) + 1
+                node = ""
+                file.write(
+                    fmt.format(
+                        line_id=line_id,
+                        track_offset=track_offset,
+                        in_id=in_id,
+                        in_pin=in_pin,
+                        node=node,
+                    )
+                )
             file.write(";\n")
 
         elif line.parent is not None and not line.children:
-            file.write(f"\\draw{modifier_str} ({self._node_name(line.parent)}.out) node[right] {{\\verb|{line.name}|}};\n")
+            fmt = "\\draw{modifier_str} ({out_id}.bout) -- ({out_id}.out) node[right] {{\\verb|{line_name}|}};\n"
+            file.write(
+                fmt.format(
+                    out_id=self._node_name(line.parent),
+                    line_name=line.name,
+                    modifier_str=modifier_str,
+                )
+            )
 
         elif line.parent is not None and line.children:
             file.write(f"\\draw{modifier_str}")
+            fmt = (
+                " ({out_id}.bout) -- ({out_id}.out) -- ++({track_offset:.2f}, 0)"
+                " |- ({in_id}.in {in_pin}) {node} -- ({in_id}.bin {in_pin})"
+            )
+            out_id = self._node_name(line.parent)
             track_offset = (self.line_tracks[line] + 1) * self.single_track_width
-            start_path = f"({self._node_name(line.parent)}.out) -- ++({track_offset:.1f}, 0)"
             for child in line.children:
-                input_index = child.inputs.index(line)
-                input_position = f"({self._node_name(child)}.in {input_index + 1})"
-                file.write(f" {start_path} |- {input_position}")
-            file.write(f" node[above, pos=1] {{\\verb|{line.name}|}};\n")
+                in_id = self._node_name(child)
+                in_pin = child.inputs.index(line) + 1
+                node = f"node[above] {{\\verb|{line.name}|}}"
+                file.write(
+                    fmt.format(
+                        out_id=out_id,
+                        pin_length=self.pin_width,
+                        track_offset=track_offset,
+                        in_id=in_id,
+                        in_pin=in_pin,
+                        node=node,
+                    )
+                )
+            file.write(";\n")
 
         else:
             assert False, "Unreachable"
