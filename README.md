@@ -1,7 +1,10 @@
 # Automatic Test Pattern Generation
 This repository implements a couple of ATPG algorithms for digital circuits,
-namely the **D-Algorithm** (and the *PODEM*). The implementation is based on
+namely the **D-Algorithm** (and *PODEM*). The implementation is based on
 a lecture I attended during my course of study (Robust System Design).
+
+The following is an exemplary assignment found for the given circuit to detect
+ a *stuck at 0* fault on line *j*:
 
 <img src="images/example.png" style="border-radius:0.5em"></img>
 
