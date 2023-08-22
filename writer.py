@@ -8,15 +8,24 @@ from multi_logic import FiveValue
 
 _idType = int
 
-_BOILERPLATE_FORMAT = """
-\\documentclass{{standalone}}
+_DOCUMENT_FORMAT = """
+\\documentclass{{{doc_class}}}
 \\usepackage{{tikz}}
 \\usepackage{{circuitikz}}
 \\begin{{document}}
-\\begin{{circuitikz}}[ieee ports, scale={scale}, font=\\small]
-{content}\\end{{circuitikz}}
+\\ctikzset{{ieee ports, logic ports draw leads=false}}
+\\tikzset{{every picture/.style={{scale={scale}, font=\\small\\ttfamily}}}}
+{content}
 \\end{{document}}
 """
+
+_CONTENT_FORMAT = """
+\\begin{circuitikz}
+{content}
+\\end{circuitikz}
+"""
+
+_BEAMER_CONTENT_FORMAT = "\\begin{frame}\n\\resizebox{\\textwidth}{!}{" + _CONTENT_FORMAT + "}\n\\end{frame}\n"
 
 _GATE_NAMES = {
     logic_blocks.AND: "and",
@@ -37,12 +46,10 @@ _LINE_MODIFIERS = {
 
 
 class TikZWriter:
-    _active_writers: dict[_idType, "TikZWriter"] = {}
-
     def __init__(
         self,
         net: Network,
-        filename: str | PathLike,
+        file_name: str | PathLike | None = None,
         single_track_width: float = 0.2,
         pin_width: float = 0.6,
         component_width: float = 1.4,
@@ -50,7 +57,7 @@ class TikZWriter:
         verbose: bool = False,
     ):
         self.net = net
-        self.filename = filename
+
         self.tikz_node_names: dict[Gate, str] = {}
         self.tikz_line_names: dict[Line, str] = {}
         self.tikz_gate_positions: dict[Gate, tuple[float, float]] = {}
@@ -64,13 +71,9 @@ class TikZWriter:
         self.scale = scale  # Scale factor for the whole diagram
 
         self.verbose = verbose
-
-    def __enter__(self):
-        self._active_writers[id(self)] = self
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._active_writers.pop(id(self))
+        self.incremental = False
+        self.file_name = file_name
+        self._compute_positions()
 
     def _node_name(self, gate: Gate) -> str:
         if gate not in self.tikz_node_names:
@@ -119,29 +122,67 @@ class TikZWriter:
             for x, lines in sorted(lines_in_layer.items(), key=lambda x: x[0]):
                 print(f"    {x:>2}: [{', '.join(map(lambda line: line.name, lines))}]")
 
-    def write(self):
+    def document_format(self, content="{content}") -> str:
+        partial = _DOCUMENT_FORMAT.format(
+            content=content,
+            doc_class="beamer" if self.incremental else "standalone",
+            scale=self.scale,
+        )
+        return partial
+
+    def _pre_postamble(self, fmt_string: str) -> tuple[str, str]:
+        pre, post = fmt_string.split("{content}")
+        return pre, post
+
+    def __enter__(self):
+        self.incremental = True
         self._compute_positions()
-        with open(self.filename, "w") as f:
-            formatted = _BOILERPLATE_FORMAT.format(scale=self.scale, content="{content}")
-            pre, post = formatted.split("{content}")
+        self.file_handle = open(self.file_name, "w")
+        pre, _ = self._pre_postamble(self.document_format())
+        self.file_handle.write(pre)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        _, post = self._pre_postamble(self.document_format())
+        self.file_handle.write(post)
+        self.file_handle.close()
+        self.incremental = False
+
+    def write_increment(self):
+        if not self.file_handle:
+            raise RuntimeError("Can only write incrementally when using a context manager.")
+        pre, post = self._pre_postamble(_BEAMER_CONTENT_FORMAT)
+        self.file_handle.write(pre)
+        for gate in self.net.gates:
+            self._write_gate(self.file_handle, gate)
+        for line in self.net.lines:
+            self._write_line(self.file_handle, line)
+        self.file_handle.write(post)
+
+    def write_full(self, filename: str | PathLike):
+        with open(filename, "w") as f:
+            partial = self.document_format(_CONTENT_FORMAT)
+            pre, post = self._pre_postamble(partial)
             f.write(pre)
-            f.write("\\ctikzset{logic ports draw leads=false}\n")
             for gate in self.net.gates:
                 self._write_gate(f, gate)
             for line in self.net.lines:
                 self._write_line(f, line)
             f.write(post)
 
+    def _escape(self, text: str) -> str:
+        return text.replace("_", "\\_").replace("&", "\\&")
+
     def _write_gate(self, file: TextIOWrapper, gate: Gate):
         input_count = len(gate.inputs)
         file.write(
-            "\\node [{} port, number inputs={}] ({}) at ({:.1f}, {:.1f}) {{\\verb|{}|}};\n".format(
+            "\\node [{} port, number inputs={}] ({}) at ({:.1f}, {:.1f}) {{{}}};\n".format(
                 _GATE_NAMES[type(gate)],
                 input_count,
                 self._node_name(gate),
                 self.tikz_gate_positions[gate][0],
                 self.tikz_gate_positions[gate][1],
-                gate.name,
+                self._escape(gate.name),
             )
         )
 
@@ -167,7 +208,7 @@ class TikZWriter:
             layer_width = (self.tracks_per_layer[layer] + 1) * self.single_track_width
             track_offset = (self.line_tracks[line] + 1) * self.single_track_width
             position = f"({self._node_name(earliest_gate)}.in {in_pin + 1}) ++(-{layer_width:.1f}, 0)"
-            file.write(f"\\draw {position}{modifier_str} node[left] ({line_id}) {{\\verb|{line.name}|}};\n")
+            file.write(f"\\draw {position}{modifier_str} node[left] ({line_id}) {{{self._escape(line.name)}}};\n")
             file.write(f"\\draw{modifier_str}")
             fmt = (
                 " ({line_id}.east) -- ++({track_offset:.2f}, 0)"
@@ -189,11 +230,11 @@ class TikZWriter:
             file.write(";\n")
 
         elif line.parent is not None and not line.children:
-            fmt = "\\draw{modifier_str} ({out_id}.bout) -- ({out_id}.out) node[right] {{\\verb|{line_name}|}};\n"
+            fmt = "\\draw{modifier_str} ({out_id}.bout) -- ({out_id}.out) node[right] {{{line_name}}};\n"
             file.write(
                 fmt.format(
                     out_id=self._node_name(line.parent),
-                    line_name=line.name,
+                    line_name=self._escape(line.name),
                     modifier_str=modifier_str,
                 )
             )
@@ -209,7 +250,7 @@ class TikZWriter:
             for child in line.children:
                 in_id = self._node_name(child)
                 in_pin = child.inputs.index(line) + 1
-                node = f"node[above] {{\\verb|{line.name}|}}"
+                node = f"node[above] {{{self._escape(line.name)}}}"
                 file.write(
                     fmt.format(
                         out_id=out_id,
@@ -224,8 +265,3 @@ class TikZWriter:
 
         else:
             assert False, "Unreachable"
-
-    @classmethod
-    def write_all(cls):
-        for writer in cls._active_writers.values():
-            writer.write()

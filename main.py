@@ -26,8 +26,7 @@ def main():
 
     out_path = Path(__file__).parent / "out"
     out_path.mkdir(exist_ok=True, parents=True)
-    with TikZWriter(net, out_path / "output.tex") as writer:
-        writer.write()
+    writer = TikZWriter(net)
 
     print(or2.equation_str())
     print("Gates in net:", len(net.gates))
@@ -48,7 +47,7 @@ def main():
                         if line.value != FiveValue.UNKNOWN
                     )
                 )
-                writer.write()
+                writer.write(out_path / f"{line.name}_{sa_name.replace('.', '')}.tex")
             else:
                 print(format_str.format(line.name, sa_name) + "No D-algorithm assignment found.")
 
